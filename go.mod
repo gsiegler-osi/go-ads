@@ -1,4 +1,4 @@
-module github.com/expo21xx/go-ads
+module github.com/gsiegler-osi/go-ads
 
 go 1.16
 

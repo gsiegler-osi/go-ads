@@ -35,6 +35,10 @@ func TestADSBytesToGoValue(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, uint32(44), v)
 
+	v, err = adsBytesToGoValue("ULINT", []byte{14, 0, 0, 0, 0, 0, 0, 0})
+	require.Nil(t, err)
+	require.Equal(t, uint64(14), v)
+
 	v, err = adsBytesToGoValue("DWORD", []byte{89, 0, 0, 0})
 	require.Nil(t, err)
 	require.Equal(t, uint32(89), v)
@@ -46,6 +50,10 @@ func TestADSBytesToGoValue(t *testing.T) {
 	v, err = adsBytesToGoValue("DINT", []byte{162, 162, 255, 255})
 	require.Nil(t, err)
 	require.Equal(t, int32(-23902), v)
+
+	v, err = adsBytesToGoValue("LINT", []byte{161, 162, 255, 255, 255, 255, 255, 255})
+	require.Nil(t, err)
+	require.Equal(t, int64(-23903), v)
 
 	v, err = adsBytesToGoValue("REAL", []byte{195, 240, 1, 64})
 	require.Nil(t, err)

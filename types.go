@@ -21,10 +21,14 @@ func adsBytesToGoValue(dt string, b []byte) (interface{}, error) {
 		return binary.LittleEndian.Uint16(b), nil
 	case "UDINT", "DWORD":
 		return binary.LittleEndian.Uint32(b), nil
+	case "ULINT":
+		return binary.LittleEndian.Uint64(b), nil
 	case "INT":
 		return int16(binary.LittleEndian.Uint16(b)), nil
 	case "DINT":
 		return int32(binary.LittleEndian.Uint32(b)), nil
+	case "LINT":
+		return int64(binary.LittleEndian.Uint64(b)), nil
 	case "REAL":
 		i := binary.LittleEndian.Uint32(b)
 		return math.Float32frombits(i), nil
@@ -111,6 +115,14 @@ func goValueToADSBytes(dt string, val interface{}) ([]byte, error) {
 		var r [4]byte
 		binary.LittleEndian.PutUint32(r[:], b)
 		return r[:], nil
+	case "ULINT":
+		b, ok := val.(uint64)
+		if !ok {
+			return nil, fmt.Errorf("provided data %v (%T) is incompatible with data type %v", val, val, dt)
+		}
+		var r [8]byte
+		binary.LittleEndian.PutUint64(r[:], b)
+		return r[:], nil
 	case "INT":
 		b, ok := val.(int16)
 		if !ok {
@@ -126,6 +138,14 @@ func goValueToADSBytes(dt string, val interface{}) ([]byte, error) {
 		}
 		var r [4]byte
 		binary.LittleEndian.PutUint32(r[:], uint32(b))
+		return r[:], nil
+	case "LINT":
+		b, ok := val.(int64)
+		if !ok {
+			return nil, fmt.Errorf("provided data %v (%T) is incompatible with data type %v", val, val, dt)
+		}
+		var r [8]byte
+		binary.LittleEndian.PutUint64(r[:], uint64(b))
 		return r[:], nil
 	case "REAL":
 		b, ok := val.(float32)

@@ -10,9 +10,11 @@ VAR
 	UIntTestVar    : UINT;
 	WordTestVar    : WORD;
 	UDIntTestVar   : UDINT;
+	ULIntTestVar   : ULINT;
 	DWordTestVar   : DWORD;
 	IntTestVar     : INT;
 	DIntTestVar    : DINT;
+	LIntTestVar    : LINT;
 	RealTestVar    : REAL;
 	LRealTestVar   : LREAL;
 	StringTestVar  : STRING;
@@ -41,11 +43,15 @@ WordTestVar := 54;
 
 UDIntTestVar := 44;
 
+ULIntTestVar := 14;
+
 DWordTestVar := 89;
 
 IntTestVar := -23;
 
 DIntTestVar := -23902;
+
+LIntTestVar := -23903;
 
 RealTestVar := 2.03032;
 

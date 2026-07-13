@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	ads "github.com/expo21xx/go-ads"
+	ads "github.com/gsiegler-osi/go-ads"
 )
 
 func main() {

@@ -77,7 +77,7 @@ func NewClient(ip, netid string, port int, opts ...Option) (*Client, error) {
 		targetNetID:                    targetNetID,
 		loadSymbolsOnStart:             false,
 		monitorSymbols:                 false,
-		sourceNetPort:                  800,
+		sourceNetPort:                  32750,
 		symbols:                        map[string]Symbol{},
 		responseChans:                  map[uint32]chan response{},
 		notificationHandlers:           map[uint32]func(interface{}){},
@@ -106,6 +106,7 @@ func (c *Client) Connect(ctx context.Context) error {
 		host, _, _ := net.SplitHostPort(conn.LocalAddr().String())
 		sourceNetID, err := ParseNetIDFromString(host + ".1.1")
 		if err != nil {
+			conn.Close()
 			return err
 		}
 		c.sourceNetID = sourceNetID
@@ -127,7 +128,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 
 	if c.monitorSymbols {
-		c.monitorSymbolsStop, err = c.setupMonitorSymbols(context.Background())
+		c.monitorSymbolsStop, err = c.setupMonitorSymbols(ctx)
 		if err != nil {
 			c.Close(ctx)
 			return err
@@ -165,16 +166,16 @@ func (c *Client) Close(ctx context.Context) error {
 
 	c.notificationHandlers = map[uint32]func(interface{}){}
 
+	var errs []error
 	for _, h := range handles {
-		err := c.DeleteDeviceNotification(ctx, h)
-		if err != nil {
-			return err
+		if err := c.DeleteDeviceNotification(ctx, h); err != nil {
+			errs = append(errs, err)
 		}
 	}
 
 	err := c.conn.Close()
 	if err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
 	c.conn = nil
@@ -187,7 +188,7 @@ func (c *Client) Close(ctx context.Context) error {
 	c.closing = false
 	c.mu.Unlock()
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // AddSymbol .
@@ -445,6 +446,33 @@ func (c *Client) ReadWrite(ctx context.Context, indexGroup uint32, indexOffset u
 	return res.Data, nil
 }
 
+// ReadWriteWithLen
+func (c *Client) ReadWriteWithLen(ctx context.Context, indexGroup uint32, indexOffset uint32, data []byte, readLength uint32) ([]byte, error) {
+	cmd := &ReadWriteCmdRequest{
+		IndexGroup:  indexGroup,
+		IndexOffset: indexOffset,
+		ReadLength:  readLength,
+		Data:        data,
+	}
+
+	respData, err := c.sendRequest(ctx, cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	res := &ReadWriteCmdResponse{}
+	err = res.fromBytes(respData)
+	if err != nil {
+		return nil, err
+	}
+
+	if res.Result != ADSErrNoError {
+		return nil, fmt.Errorf("read write returned error code: %v (0x%x)", ErrCodeToString(res.Result), res.Result)
+	}
+
+	return res.Data, nil
+}
+
 // ReadWriteByName .
 func (c *Client) ReadWriteByName(ctx context.Context, name string, data []byte) (interface{}, error) {
 	symbol, ok := c.GetSymbol(name)
@@ -556,43 +584,47 @@ func (c *Client) FetchSymbols(ctx context.Context) error {
 	buf := bytes.NewBuffer(infoData)
 	binary.Read(buf, binary.LittleEndian, &symInfo)
 
-	symbolData, err := c.Read(ctx, ADSIndexGroupSymUpload, 0, int(symInfo.DataTypeLength))
+	symbolData, err := c.Read(ctx, ADSIndexGroupSymUpload, 0, int(symInfo.SymbolLength))
 	if err != nil {
 		return err
 	}
 
 	offset := 0
-	for offset < len(symbolData) {
+	for idx := 0; idx < int(symInfo.SymbolCount); idx++ {
 		var symbol Symbol
 		length := binary.LittleEndian.Uint32(symbolData[offset : offset+4])
 
 		symbol.IndexGroup = binary.LittleEndian.Uint32(symbolData[offset+4 : offset+8])
 		symbol.IndexOffset = binary.LittleEndian.Uint32(symbolData[offset+8 : offset+12])
 		symbol.Size = binary.LittleEndian.Uint32(symbolData[offset+12 : offset+16])
-		// symbol.Type = binary.LittleEndian.Uint32(symbolData[offset+16 : offset+20])
 		symbol.Flags = binary.LittleEndian.Uint32(symbolData[offset+20 : offset+24])
 
 		nameLen := int(binary.LittleEndian.Uint16(symbolData[offset+24 : offset+26]))
 		typeLen := int(binary.LittleEndian.Uint16(symbolData[offset+26 : offset+28]))
 		commentLen := int(binary.LittleEndian.Uint16(symbolData[offset+28 : offset+30]))
 
-		relOffset := offset + 30
+		nameStartOffset := offset + 30
+		nameEndOffset := nameStartOffset + nameLen
+		typeStartOffset := nameEndOffset + 1
+		typeEndOffset := typeStartOffset + typeLen
+		commentStartOffset := typeEndOffset + 1
+		commentEndOffset := commentStartOffset + commentLen
 
-		symbol.Name = string(symbolData[relOffset : relOffset+nameLen])
-
-		relOffset = relOffset + nameLen + 1
-
-		symbol.Type = string(symbolData[relOffset : relOffset+typeLen])
-
-		relOffset = relOffset + typeLen + 2
-
-		if commentLen != 0 {
-			symbol.Comment = string(symbolData[relOffset : relOffset+commentLen-1])
+		symbol.Name, err = decodeADS(symbolData[nameStartOffset:nameEndOffset])
+		if err != nil {
+			return err
+		}
+		symbol.Type, err = decodeADS(symbolData[typeStartOffset:typeEndOffset])
+		if err != nil {
+			return err
+		}
+		symbol.Comment, err = decodeADS(symbolData[commentStartOffset:commentEndOffset])
+		if err != nil {
+			return err
 		}
 
-		c.AddSymbol(symbol)
-
 		offset = offset + int(length)
+		c.AddSymbol(symbol)
 	}
 
 	return nil
@@ -689,15 +721,12 @@ func (c *Client) receiver() {
 			if err != nil {
 				log.Fatal(err)
 			}
-
 			if hn != 32 {
 				log.Fatalf("not enough bytes read: %v", hn)
 			}
-
 			header = parseAMSHeader(headerBytes)
 		}
 
-		// impartial message
 		if header.dataLength > uint32(buf.Len()) {
 			partial = true
 			continue
@@ -705,8 +734,8 @@ func (c *Client) receiver() {
 
 		data := buf.Next(int(header.dataLength))
 		dataCopy := make([]byte, len(data))
-		// copy the bytes becasue the returned slice is only valid until the next read. This can be an issue when using notifications from multiple goroutines.
 		copy(dataCopy[:], data)
+
 		if header.isResponse() {
 			c.handleResponse(header, dataCopy)
 		} else {

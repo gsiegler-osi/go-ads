@@ -640,16 +640,16 @@ func (c *Client) sendRequest(ctx context.Context, cmd Cmd) ([]byte, error) {
 		invokeID:    c.newInvokeID(),
 		stateFlags:  0x0004,
 	}
-
 	data := cmd.Bytes()
 
-	resChan := make(chan response)
+	resChan := make(chan response, 1)
+
 	c.mu.Lock()
 	c.responseChans[header.invokeID] = resChan
 	c.mu.Unlock()
+
 	defer func() {
 		c.mu.Lock()
-		close(c.responseChans[header.invokeID])
 		delete(c.responseChans, header.invokeID)
 		c.mu.Unlock()
 	}()
